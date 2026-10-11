@@ -1,0 +1,49 @@
+# KeyFlip
+
+A tiny Windows tray utility that fixes text typed with the wrong keyboard layout.
+Select text in any app, press a shortcut, and KeyFlip converts it between
+**English (QWERTY)** and **Arabic (101)** by key position. It does not translate or spell-check.
+
+Example: `sghl` becomes `سلام`, and `سلام` becomes `sghl`.
+
+## Use
+
+1. Run `KeyFlip.exe`. An icon appears near the clock (it may be under the `^` arrow).
+2. Select text in any app and press the shortcut (default: **Ctrl+Alt+Space**).
+3. If the shortcut is taken by another program, KeyFlip tells you. Double-click the tray icon
+   and choose another one in **Settings**.
+
+Tray menu: **Settings**, **Enabled** (turn the shortcut on/off), **Exit**.
+
+KeyFlip does not start with Windows unless you tick that box in Settings.
+
+## Notes and limits
+
+- Conversion follows the Windows **Arabic (101)** layout. Other Arabic layouts are not supported.
+- Digits and spaces are left unchanged.
+- The Arabic text "لا" is converted back as `gh`, because it looks the same whether it was
+  typed with one key or with `g` then `h`.
+- KeyFlip copies your selection, pastes the converted text, then restores your previous clipboard.
+  Text, images and file lists are restored. Some complex formats (for example from Excel) may not be,
+  and KeyFlip warns you when that happens.
+- It cannot send keystrokes to programs running as administrator.
+- The app is not code-signed, so Windows SmartScreen may show "Windows protected your PC".
+  Click **More info**, then **Run anyway**. Some antivirus tools may flag programs that use a global
+  shortcut and simulated keystrokes; the full source code is included so you can check it.
+- Settings are stored in `%AppData%\KeyFlip\settings.json`.
+
+## Uninstall
+
+Untick "Start KeyFlip when I sign in" in Settings, choose Exit, delete `KeyFlip.exe`,
+and optionally delete `%AppData%\KeyFlip`.
+
+## Build from source
+
+Requires the .NET SDK.
+
+```
+cd KeyFlip
+dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o ..\publish
+```
+
+Run the tests with `dotnet test` in the `KeyFlip.Tests` folder.
