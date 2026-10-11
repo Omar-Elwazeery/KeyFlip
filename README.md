@@ -1,3 +1,5 @@
+![KeyFlip](keyflip-logo.png)
+
 # KeyFlip
 
 A tiny Windows tray utility that fixes text typed with the wrong keyboard layout.
