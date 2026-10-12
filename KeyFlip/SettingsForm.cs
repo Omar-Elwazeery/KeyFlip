@@ -1,10 +1,15 @@
 using System.Drawing;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace KeyFlip;
 
 public sealed class SettingsForm : Form
 {
+    private const string DefaultHint = "Use Ctrl, Alt or Win together with another key.";
+
+    [DllImport("user32.dll")] private static extern short GetKeyState(int vKey);
+
     private readonly TextBox _hotkeyBox = new();
     private readonly Label _hint = new();
     private readonly CheckBox _startupBox = new();
@@ -19,6 +24,11 @@ public sealed class SettingsForm : Form
     {
         _mods = mods;
         _key = key;
+
+        SuspendLayout();
+        // Positions below are in 96-DPI pixels; scale them up on high-DPI screens.
+        AutoScaleDimensions = new SizeF(96F, 96F);
+        AutoScaleMode = AutoScaleMode.Dpi;
 
         Text = "KeyFlip Settings";
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -40,21 +50,24 @@ public sealed class SettingsForm : Form
         _hotkeyBox.BackColor = SystemColors.Window;
         _hotkeyBox.Text = HotkeyFormat.Describe(_mods, _key);
 
-        _hint.Left = 16; _hint.Top = 68; _hint.Width = 350; _hint.Height = 20;
-        _hint.Text = "Use Ctrl or Alt together with another key.";
+        _hint.Left = 16; _hint.Top = 68; _hint.Width = 350; _hint.Height = 34;
+        _hint.Text = DefaultHint;
         _hint.ForeColor = SystemColors.GrayText;
 
-        _startupBox.Left = 16; _startupBox.Top = 100; _startupBox.Width = 350;
+        _startupBox.Left = 16; _startupBox.Top = 108; _startupBox.Width = 350;
         _startupBox.Text = "Start KeyFlip when I sign in to Windows";
         _startupBox.Checked = runAtStartup;
 
-        var save = new Button { Text = "Save", Left = 190, Top = 150, Width = 80, DialogResult = DialogResult.OK };
-        var cancel = new Button { Text = "Cancel", Left = 282, Top = 150, Width = 80, DialogResult = DialogResult.Cancel };
+        var save = new Button { Text = "Save", Left = 190, Top = 152, Width = 80, DialogResult = DialogResult.OK };
+        var cancel = new Button { Text = "Cancel", Left = 282, Top = 152, Width = 80, DialogResult = DialogResult.Cancel };
         AcceptButton = save;
         CancelButton = cancel;
 
         Controls.AddRange(new Control[] { label, _hotkeyBox, _hint, _startupBox, save, cancel });
+        ResumeLayout(false);
     }
+
+    private static bool IsDown(Keys key) => (GetKeyState((int)key) & 0x8000) != 0;
 
     // Captures the key combination while the shortcut box has focus.
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
@@ -65,24 +78,27 @@ public sealed class SettingsForm : Form
         if ((keyData & Keys.Control) != 0) mods |= HotkeyModifiers.Control;
         if ((keyData & Keys.Alt) != 0) mods |= HotkeyModifiers.Alt;
         if ((keyData & Keys.Shift) != 0) mods |= HotkeyModifiers.Shift;
+        if (IsDown(Keys.LWin) || IsDown(Keys.RWin)) mods |= HotkeyModifiers.Win; // not part of keyData
         Keys code = keyData & Keys.KeyCode;
 
-        // No modifier: let Tab / Enter / Esc behave normally so the dialog stays usable.
-        if (mods == HotkeyModifiers.None) return base.ProcessCmdKey(ref msg, keyData);
+        // No modifier (or Shift+Tab): let Tab / Enter / Esc behave normally so the dialog stays usable.
+        if (mods == HotkeyModifiers.None || keyData == (Keys.Shift | Keys.Tab))
+            return base.ProcessCmdKey(ref msg, keyData);
 
         // Only modifier keys pressed so far: wait for the real key.
         if (code is Keys.ControlKey or Keys.ShiftKey or Keys.Menu or Keys.LWin or Keys.RWin) return true;
 
-        if ((mods & (HotkeyModifiers.Control | HotkeyModifiers.Alt)) == 0)
+        string? problem = HotkeyRules.Problem(mods, code);
+        if (problem != null)
         {
-            _hint.Text = "Please include Ctrl or Alt.";
+            _hint.Text = problem;
             return true;
         }
 
         _mods = mods;
         _key = code;
         _hotkeyBox.Text = HotkeyFormat.Describe(_mods, _key);
-        _hint.Text = "Use Ctrl or Alt together with another key.";
+        _hint.Text = DefaultHint;
         return true;
     }
 }

@@ -6,14 +6,16 @@ A tiny Windows tray utility that fixes text typed with the wrong keyboard layout
 Select text in any app, press a shortcut, and KeyFlip converts it between
 **English (QWERTY)** and **Arabic (101)** by key position. It does not translate or spell-check.
 
-Example: `sghl` becomes `سلام`, and `سلام` becomes `sghl`.
+Example: `sghl` becomes `سلام`, and `شلاخعف` becomes `about`. Pressing the shortcut again
+right away puts back exactly what you had.
 
 ## Use
 
 1. Run `KeyFlip.exe`. An icon appears near the clock (it may be under the `^` arrow).
 2. Select text in any app and press the shortcut (default: **Ctrl+Alt+Space**).
 3. If the shortcut is taken by another program, KeyFlip tells you. Double-click the tray icon
-   and choose another one in **Settings**.
+   and choose another one in **Settings**. Shortcuts that every program needs, such as Ctrl+C,
+   Ctrl+V or Alt+F4, cannot be chosen.
 
 Tray menu: **Settings**, **Enabled** (turn the shortcut on/off), **Exit**.
 
@@ -23,11 +25,13 @@ KeyFlip does not start with Windows unless you tick that box in Settings.
 
 - Conversion follows the Windows **Arabic (101)** layout. Other Arabic layouts are not supported.
 - Digits and spaces are left unchanged.
-- The Arabic text "لا" is converted back as `gh`, because it looks the same whether it was
-  typed with one key or with `g` then `h`.
+- The Arabic text "لا" looks the same whether it was typed with the `b` key or with `g` then `h`.
+  When converting to English, KeyFlip uses `b` unless `gh` makes a known English word
+  (for example `night`, `though`, `laugh`).
 - KeyFlip copies your selection, pastes the converted text, then restores your previous clipboard.
   Text, images and file lists are restored. Some complex formats (for example from Excel) may not be,
-  and KeyFlip warns you when that happens.
+  and KeyFlip warns you when that happens. KeyFlip keeps its own clipboard use out of the
+  Windows clipboard history (Win+V), but the copy of your selection may still appear there.
 - It cannot send keystrokes to programs running as administrator.
 - The app is not code-signed, so Windows SmartScreen may show "Windows protected your PC".
   Click **More info**, then **Run anyway**. Some antivirus tools may flag programs that use a global
