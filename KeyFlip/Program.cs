@@ -6,7 +6,7 @@ namespace KeyFlip;
 internal static class Program
 {
     [STAThread]
-    static void Main()
+    static void Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
 
@@ -18,7 +18,7 @@ internal static class Program
             return;
         }
 
-        Application.Run(new TrayContext());
+        Application.Run(new TrayContext(startedAtSignIn: args.Contains(StartupManager.StartupArgument)));
     }
 }
 
@@ -31,8 +31,10 @@ internal sealed class TrayContext : ApplicationContext
     private readonly SelectionConverter _converter = new();
     private bool _settingsOpen;
 
-    public TrayContext()
+    public TrayContext(bool startedAtSignIn)
     {
+        try { StartupManager.RefreshEntry(); } catch { /* keep the old entry */ }
+
         _enableItem = new ToolStripMenuItem("Enabled") { Checked = _settings.Enabled, CheckOnClick = true };
         _enableItem.CheckedChanged += (_, _) =>
         {
@@ -57,7 +59,8 @@ internal sealed class TrayContext : ApplicationContext
         _tray.DoubleClick += (_, _) => OpenSettings();
 
         _hotkey.HotkeyPressed += OnHotkey;
-        ApplyEnabledState();
+        // No "Ready" popup at every sign-in; problems are still reported.
+        ApplyEnabledState(announce: !startedAtSignIn);
     }
 
     // Uses the icon embedded in KeyFlip.exe; falls back to a generic one if that fails.
@@ -78,26 +81,29 @@ internal sealed class TrayContext : ApplicationContext
 
     private string ShortcutText => HotkeyFormat.Describe(_settings.Mods, _settings.KeyCode);
 
-    private void ApplyEnabledState()
+    private void ApplyEnabledState(bool announce = true)
     {
+        if (_settingsOpen) return; // the shortcut is off while Settings is open; OpenSettings re-applies it
         if (_enableItem.Checked)
         {
-            if (_hotkey.Register(_settings.Mods, _settings.KeyCode, out string error))
+            if (!_hotkey.Register(_settings.Mods, _settings.KeyCode, out string error))
+                NotifyShortcutProblem(error);
+            else if (announce)
                 Notify("KeyFlip", "Ready. Shortcut: " + ShortcutText, ToolTipIcon.Info);
-            else
-                Notify("KeyFlip - shortcut problem",
-                       error + " Open Settings to choose another shortcut.", ToolTipIcon.Error);
         }
         else
         {
             _hotkey.Unregister();
-            Notify("KeyFlip", "Disabled", ToolTipIcon.Info);
+            if (announce) Notify("KeyFlip", "Disabled", ToolTipIcon.Info);
         }
     }
 
+    private void NotifyShortcutProblem(string error)
+        => Notify("KeyFlip - shortcut problem", error + " Open Settings to choose another shortcut.", ToolTipIcon.Error);
+
     private async void OnHotkey()
     {
-        var result = await _converter.RunAsync();
+        var result = await _converter.RunAsync(_settings.KeyCode);
         string message = result.Message;
         if (_converter.LastWarning != null)
         {
@@ -111,16 +117,23 @@ internal sealed class TrayContext : ApplicationContext
     {
         if (_settingsOpen) return;
         _settingsOpen = true;
+        // Turn the shortcut off while the dialog is open: pressing it there should be captured
+        // as a key combination, not convert text inside the dialog.
+        _hotkey.Unregister();
         try
         {
-            using var form = new SettingsForm(_settings.Mods, _settings.KeyCode, StartupManager.IsEnabled());
+            bool startupWasOn = StartupManager.IsEnabled();
+            using var form = new SettingsForm(_settings.Mods, _settings.KeyCode, startupWasOn);
             if (form.ShowDialog() != DialogResult.OK) return;
 
             // 1. Start with Windows (only changes when the user ticks/unticks the box).
-            try { StartupManager.Set(form.RunAtStartup); }
-            catch (Exception ex)
+            if (form.RunAtStartup != startupWasOn)
             {
-                MessageBox.Show("Could not change the startup setting: " + ex.Message, "KeyFlip");
+                try { StartupManager.Set(form.RunAtStartup); }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Could not change the startup setting: " + ex.Message, "KeyFlip");
+                }
             }
 
             // 2. Shortcut.
@@ -139,13 +152,16 @@ internal sealed class TrayContext : ApplicationContext
                 else
                 {
                     MessageBox.Show(error + "\n\nThe previous shortcut was kept.", "KeyFlip");
-                    _hotkey.Register(_settings.Mods, _settings.KeyCode, out _); // put the old one back
                 }
             }
         }
         finally
         {
             _settingsOpen = false;
+            // Put the saved shortcut back unless a new one was registered above.
+            if (_enableItem.Checked && !_hotkey.IsRegistered
+                && !_hotkey.Register(_settings.Mods, _settings.KeyCode, out string error))
+                NotifyShortcutProblem(error);
         }
     }
 

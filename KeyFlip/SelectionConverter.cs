@@ -12,21 +12,23 @@ public sealed record ConvertResult(bool Success, string Title, string Message);
 public sealed class SelectionConverter
 {
     private bool _busy;
+    private (string Original, string Converted)? _last;
 
-    public async Task<ConvertResult> RunAsync()
+    /// <param name="hotkeyKey">The non-modifier key of the shortcut (for example Space).</param>
+    public async Task<ConvertResult> RunAsync(Keys hotkeyKey)
     {
         if (_busy) return new(false, "KeyFlip", "Still working on the previous conversion.");
         _busy = true;
-        try { return await DoConvertAsync(); }
+        try { return await DoConvertAsync(hotkeyKey); }
         catch (Exception ex) { return new(false, "KeyFlip error", ex.Message); }
         finally { _busy = false; }
     }
 
-    private async Task<ConvertResult> DoConvertAsync()
+    private async Task<ConvertResult> DoConvertAsync(Keys hotkeyKey)
     {
-        // 1. The user is still holding the shortcut keys. Wait until they let go,
-        //    otherwise our Ctrl+C would arrive as Ctrl+Alt+C (or similar).
-        if (!await WaitForModifiersReleasedAsync(1500))
+        // 1. The user is still holding the shortcut keys. Wait until they let go of all of them,
+        //    otherwise our Ctrl+C would arrive as Ctrl+Alt+C, or mix with the held key (Ctrl+Space).
+        if (!await WaitForKeysReleasedAsync(hotkeyKey, 1500))
             return new(false, "KeyFlip", "Release the shortcut keys and try again.");
 
         // 2. Remember the user's clipboard BEFORE touching it.
@@ -51,18 +53,26 @@ public sealed class SelectionConverter
             if (string.IsNullOrEmpty(text))
                 return new(false, "KeyFlip", "The selection did not contain text.");
 
+            // Converting KeyFlip's own result again gives back exactly what was selected before
+            // (converting back to English has to guess where each lam-alef came from).
             var direction = KeyboardConverter.Detect(text);
-            string converted = KeyboardConverter.Convert(text, direction);
+            string converted = _last is { } last && last.Converted == text
+                ? last.Original
+                : KeyboardConverter.Convert(text, direction);
             if (converted == text)
                 return new(false, "KeyFlip", "Nothing to convert in the selected text.");
 
-            try { Clipboard.SetDataObject(converted, true, 10, 50); }
+            var data = new DataObject();
+            data.SetData(DataFormats.UnicodeText, true, converted);
+            ClipboardSnapshot.ExcludeFromHistory(data);
+            try { Clipboard.SetDataObject(data, true, 10, 50); }
             catch (ExternalException)
             {
                 return new(false, "KeyFlip", "Could not use the clipboard to paste. The selected text was not changed.");
             }
 
             SendCtrlKey(VK_V);
+            _last = (text, converted);
             // Give the target app time to read the clipboard before we put the old content back.
             await Task.Delay(400);
 
@@ -105,12 +115,13 @@ public sealed class SelectionConverter
         return GetClipboardSequenceNumber() != before;
     }
 
-    private static async Task<bool> WaitForModifiersReleasedAsync(int timeoutMs)
+    private static async Task<bool> WaitForKeysReleasedAsync(Keys hotkeyKey, int timeoutMs)
     {
         int waited = 0;
         while (waited < timeoutMs)
         {
-            if (!IsDown(VK_CONTROL) && !IsDown(VK_MENU) && !IsDown(VK_SHIFT) && !IsDown(VK_LWIN) && !IsDown(VK_RWIN))
+            if (!IsDown(VK_CONTROL) && !IsDown(VK_MENU) && !IsDown(VK_SHIFT) && !IsDown(VK_LWIN) && !IsDown(VK_RWIN)
+                && !IsDown((int)hotkeyKey))
             {
                 await Task.Delay(30); // small settle time
                 return true;
@@ -196,6 +207,13 @@ internal sealed class ClipboardSnapshot
         return snap;
     }
 
+    // Windows (Win+V history, cloud clipboard) and clipboard managers skip clipboard content
+    // that carries this format, so KeyFlip's temporary writes do not show up there.
+    private const string ExcludeFromHistoryFormat = "ExcludeClipboardContentFromMonitorProcessing";
+
+    public static void ExcludeFromHistory(DataObject obj) =>
+        obj.SetData(ExcludeFromHistoryFormat, false, new MemoryStream(new byte[4]));
+
     /// <summary>0 = fully restored, &gt;0 = number of formats lost, -1 = restore failed entirely.</summary>
     public int Restore()
     {
@@ -208,6 +226,8 @@ internal sealed class ClipboardSnapshot
             {
                 try { obj.SetData(format, false, data); } catch { failed++; }
             }
+            // The original content is already in the history from when the user copied it.
+            ExcludeFromHistory(obj);
             Clipboard.SetDataObject(obj, true, 10, 50);
             return failed;
         }
